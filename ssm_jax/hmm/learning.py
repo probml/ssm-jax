@@ -14,13 +14,15 @@ from tqdm.auto import trange
 
 def hmm_fit_em(hmm, batch_emissions, optimizer=optax.adam(1e-2), num_iters=50):
 
-    @jit
+    # TODO: @jit -> When used, it gives an error saying
+    # a method is not an iterable
     def em_step(hmm):
         batch_posteriors, batch_trans_probs = hmm.e_step(batch_emissions)
-        hmm, marginal_logliks = hmm.m_step(batch_emissions, batch_posteriors, batch_trans_probs, optimizer)
-        return hmm, marginal_logliks
+        new_hmm, marginal_logliks = hmm.m_step(batch_emissions, batch_posteriors, batch_trans_probs, optimizer)
+        return new_hmm, marginal_logliks
 
     log_probs = []
+
     for _ in trange(num_iters):
         hmm, marginal_logliks = em_step(hmm)
         log_probs.append(marginal_logliks[-1])
