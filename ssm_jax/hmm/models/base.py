@@ -47,24 +47,40 @@ class BaseHMM(ABC):
         return self._emission_distribution.event_shape[0]
 
     @property
-    def initial_probabilities(self):
-        return self._initial_distribution.probs
-
-    @property
-    def transition_matrix(self):
-        return self._transition_distribution.probs
-
-    @property
     def initial_distribution(self):
         return self._initial_distribution
+
+    @property
+    def emission_distribution(self):
+        return self._emission_distribution
 
     @property
     def transition_distribution(self):
         return self._transition_distribution
 
-    @abstractproperty
-    def emission_distribution(self):
-        raise NotImplementedError
+    @property
+    def initial_probabilities(self):
+        return self._initial_distribution.probs_parameter()
+
+    @property
+    def emission_probs(self):
+        return self._emission_distribution.probs_parameter()
+
+    @property
+    def transition_matrix(self):
+        return self._transition_distribution.probs_parameter()
+
+    @property
+    def initial_logits(self):
+        return self._initial_distribution.logits_parameter()
+
+    @property
+    def transition_logits(self):
+        return self._transition_distribution.logits_parameter()
+
+    @property
+    def emission_logits(self):
+        return self.emission_distribution.logits_parameter()
 
     def sample(self, key, num_timesteps):
         """Sample a sequence of latent states and emissions.
@@ -102,7 +118,8 @@ class BaseHMM(ABC):
         # Add extra dimension to emissions for broadcasting over states.
         # Becomes emissions(T,:) or emissions(T,:,D) which broadcasts with emissions distribution
         # of shape (K,) or (K,D).
-        log_likelihoods = self.emission_distribution.log_prob(emissions[:, None, ...])
+        log_likelihoods = vmap(self.emission_distribution.log_prob)(emissions.reshape((-1, 1)))
+        log_likelihoods = log_likelihoods.reshape((-1, self.num_states))
         return log_likelihoods
 
     # Basic inference code
