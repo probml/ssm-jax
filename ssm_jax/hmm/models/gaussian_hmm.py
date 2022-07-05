@@ -41,10 +41,6 @@ class GaussianHMM(BaseHMM):
 
     # Properties to get various parameters of the model
     @property
-    def emission_distribution(self):
-        return self._emission_distribution
-
-    @property
     def emission_means(self):
         return self._emission_distribution.mean()
 
