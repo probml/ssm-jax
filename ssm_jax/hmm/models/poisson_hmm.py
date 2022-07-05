@@ -1,7 +1,9 @@
 import jax.numpy as jnp
 import jax.random as jr
+import optax
 import tensorflow_probability.substrates.jax.distributions as tfd
 from jax import nn
+from jax import vmap
 from jax.tree_util import register_pytree_node_class
 from ssm_jax.hmm.models.base import BaseHMM
 
@@ -33,8 +35,8 @@ class PoissonHMM(BaseHMM):
 
     # Properties to get various parameters of the model
     @property
-    def emission_distribution(self):
-        return self._emission_distribution
+    def num_obs(self):
+        return self.emission_log_rates.shape[-1]
 
     @property
     def emission_rates(self):
@@ -54,3 +56,30 @@ class PoissonHMM(BaseHMM):
     @classmethod
     def from_unconstrained_params(cls, unconstrained_params, hypers):
         return cls(*unconstrained_params, *hypers)
+
+    def m_step(self, batch_emissions, batch_posteriors, batch_trans_probs, optimizer=optax.adam(0.01), num_iters=50):
+        # Based on: Hyvönen & Tolonen, "Bayesian Inference 2019"
+        # section 3.2
+        # https://vioshyvo.github.io/Bayesian_inference
+        smoothed_probs = batch_posteriors.smoothed_probs
+        print(smoothed_probs.shape, batch_emissions.shape)
+        one_hot_emissions = nn.one_hot(jnp.squeeze(batch_emissions), num_classes=self.num_obs, axis=-1)
+        print(one_hot_emissions.shape)
+        obs_probs = vmap(lambda x, y: jnp.dot(x.T, y))(smoothed_probs, one_hot_emissions)
+        obs_probs = jnp.sum(obs_probs, axis=0)
+        posterior_sum = smoothed_probs.sum(axis=1).sum(axis=0)
+
+        n = posterior_sum.sum()
+        y_bar = obs_probs / posterior_sum
+        emission_log_rates = jnp.log((n * y_bar) / n)
+
+        transitions_probs = batch_trans_probs.sum(axis=0)
+        denom = transitions_probs.sum(axis=-1, keepdims=True)
+        transitions_probs = transitions_probs / jnp.where(denom == 0, 1, denom)
+
+        batch_initial_probs = smoothed_probs[:, 0, :]
+        initial_probs = batch_initial_probs.sum(axis=0) / batch_initial_probs.sum()
+
+        hmm = PoissonHMM(initial_probs, transitions_probs, emission_log_rates)
+
+        return hmm, batch_posteriors.marginal_loglik
