@@ -23,6 +23,7 @@ by the Multinomial distribution.
 """
 import jax.numpy as jnp
 import jax.random as jr
+from matplotlib import pyplot as plt
 from ssm_jax.hmm.learning import hmm_fit_em
 from ssm_jax.hmm.models.multinomial_hmm import MultinomialHMM
 
@@ -77,13 +78,16 @@ def main():
     # Set up model
     model = MultinomialHMM(initial_probabilities, transition_matrix, emission_probs)
 
-    hmm, log_probs = hmm_fit_em(model, sequences, num_iters=50)
-
+    hmm, log_probs = hmm_fit_em(model, sequences, num_iters=20)
+    print(log_probs)
     print("Learned emission probs:")
     print(hmm.emission_probs)
 
     print("Learned transition matrix:")
     print(hmm.transition_matrix)
+
+    plt.plot(log_probs)
+    plt.savefig("ksdj.png")
 
 
 if __name__ == "__main__":

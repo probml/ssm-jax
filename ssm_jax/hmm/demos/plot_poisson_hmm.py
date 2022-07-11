@@ -51,10 +51,13 @@ for num_states in range(1, 5):
 
         key = jr.PRNGKey(idx)
         model = PoissonHMM.random_initialization(key, num_states, emission_dim)
-        model, _ = hmm_fit_em(model, earthquakes[:, None])
+        print(earthquakes.shape)
+        model, _ = hmm_fit_em(model, earthquakes[None, ..., None])
         models.append(model)
         scores.append(model.marginal_log_prob(earthquakes[:, None]))
         print(f'Score: {scores[-1]}')
+        break
+    break
 
 # get the best model
 model = models[jnp.argmax(scores)]
