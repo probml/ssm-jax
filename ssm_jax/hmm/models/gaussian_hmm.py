@@ -27,7 +27,8 @@ class GaussianHMM(BaseHMM):
         """
         super().__init__(initial_probabilities, transition_matrix)
 
-        self._emission_distribution = tfd.MultivariateNormalFullCovariance(emission_means, emission_covariance_matrices)
+        self._emission_means = emission_means
+        self._emission_covs = emission_covariance_matrices
 
     @classmethod
     def random_initialization(cls, key, num_states, emission_dim):
@@ -39,17 +40,21 @@ class GaussianHMM(BaseHMM):
         return cls(initial_probs, transition_matrix, emission_means, emission_covs)
 
     # Properties to get various parameters of the model
+    def emission_distribution(self, state):
+        return tfd.MultivariateNormalFullCovariance(
+            self._emission_means[state], self._emission_covs[state])
+
     @property
-    def emission_distribution(self):
-        return self._emission_distribution
+    def emission_shape(self):
+        return self._emission_means.shape[1:]
 
     @property
     def emission_means(self):
-        return self._emission_distribution.mean()
+        return self._emission_means
 
     @property
     def emission_covariance_matrices(self):
-        return self._emission_distribution.covariance()
+        return self._emission_covs
 
     @property
     def unconstrained_params(self):
@@ -102,32 +107,35 @@ class GaussianHMM(BaseHMM):
 
             # TODO: might need to normalize x_sum and xxT_sum for numerical stability
             stats = GaussianHMMSuffStats(
-                initial_probs=initial_probs, sum_trans_probs=sum_trans_probs, sum_w=sum_w, sum_x=sum_x, sum_xxT=sum_xxT
+                initial_probs=initial_probs,
+                sum_trans_probs=sum_trans_probs,
+                sum_w=sum_w,
+                sum_x=sum_x,
+                sum_xxT=sum_xxT
             )
             return stats, posterior.marginal_loglik
 
         # Map the E step calculations over batches
         return vmap(_single_e_step)(batch_emissions)
 
-    @classmethod
-    def m_step(cls, batch_stats):
+    def m_step(self,
+               batch_emissions,
+               batch_posteriors):
+
         # Sum the statistics across all batches
-        stats = tree_map(partial(jnp.sum, axis=0), batch_stats)
+        stats = tree_map(partial(jnp.sum, axis=0), batch_posteriors)
 
         # Initial distribution
-        initial_probs = tfd.Dirichlet(1.0001 + stats.initial_probs).mode()
+        self._initial_probabilities = tfd.Dirichlet(1.0001 + stats.initial_probs).mode()
 
         # Transition distribution
-        transition_matrix = tfd.Dirichlet(1.0001 + stats.sum_trans_probs).mode()
+        self._transition_matrix = tfd.Dirichlet(1.0001 + stats.sum_trans_probs).mode()
 
         # Gaussian emission distribution
         emission_dim = stats.sum_x.shape[-1]
-        emission_means = stats.sum_x / stats.sum_w[:, None]
-        emission_covs = (
+        self._emission_means = stats.sum_x / stats.sum_w[:, None]
+        self._emission_covs = (
             stats.sum_xxT / stats.sum_w[:, None, None]
-            - jnp.einsum("ki,kj->kij", emission_means, emission_means)
+            - jnp.einsum("ki,kj->kij", self._emission_means, self._emission_means)
             + 1e-4 * jnp.eye(emission_dim)
         )
-
-        # Pack the results into a new GaussianHMM
-        return cls(initial_probs, transition_matrix, emission_means, emission_covs)

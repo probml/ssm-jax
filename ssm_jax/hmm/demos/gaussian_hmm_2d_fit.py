@@ -13,9 +13,15 @@ from ssm_jax.plotting import white_to_color_cmap, COLORS, CMAP
 from ssm_jax.hmm.demos.gaussian_hmm_2d import plot_gaussian_hmm, plot_gaussian_hmm_data, plot_hmm_posterior, make_hmm
 
 
-def main(num_timesteps=2000, plot_timesteps=200, num_em_iters=50, num_sgd_iters=2000, test_mode=False):
+def main(num_states=5,
+         emission_dim=2,
+         num_timesteps=2000,
+         plot_timesteps=200,
+         num_em_iters=50,
+         num_sgd_iters=2000,
+         test_mode=False):
 
-    true_hmm = make_hmm()
+    true_hmm = make_hmm(num_states=num_states, emission_dim=emission_dim)
     true_states, emissions = true_hmm.sample(jr.PRNGKey(0), num_timesteps)
 
     if not test_mode:
@@ -28,7 +34,7 @@ def main(num_timesteps=2000, plot_timesteps=200, num_em_iters=50, num_sgd_iters=
     # Fit a GaussianHMM with twice number of true states using EM
     print("Fit with EM")
     batch_emissions = emissions[None, ...]
-    test_hmm_em = GaussianHMM.random_initialization(jr.PRNGKey(1), 2 * true_hmm.num_states, true_hmm.num_obs)
+    test_hmm_em = GaussianHMM.random_initialization(jr.PRNGKey(1), 2 * num_states, emission_dim)
     test_hmm_em, logprobs_em = learning.hmm_fit_em(test_hmm_em, batch_emissions, num_iters=num_em_iters)
 
     # Get the posterior
@@ -47,7 +53,7 @@ def main(num_timesteps=2000, plot_timesteps=200, num_em_iters=50, num_sgd_iters=
 
     # Fit a Gaussian HMM with twice number of true states using SGD
     print("Fit with SGD")
-    test_hmm_sgd = GaussianHMM.random_initialization(jr.PRNGKey(1), 2 * true_hmm.num_states, true_hmm.num_obs)
+    test_hmm_sgd = GaussianHMM.random_initialization(jr.PRNGKey(1), 2 * num_states, emission_dim)
     optimizer = optax.adam(learning_rate=1e-2)
     test_hmm_sgd, losses = learning.hmm_fit_sgd(test_hmm_sgd, batch_emissions, optimizer, num_iters=num_sgd_iters)
 

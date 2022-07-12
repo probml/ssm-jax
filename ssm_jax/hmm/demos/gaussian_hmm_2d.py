@@ -1,9 +1,8 @@
 """Demo of a simple Gaussian HMM with 2D emissions.
 """
-import numpy as np
 import jax.numpy as jnp
 import jax.random as jr
-import optax
+from jax import vmap
 
 from ssm_jax.hmm.models import GaussianHMM
 
@@ -16,10 +15,10 @@ def plot_gaussian_hmm(hmm, emissions, states, ttl="Emission Distributions"):
     XX, YY = jnp.meshgrid(jnp.linspace(-lim, lim, 100), jnp.linspace(-lim, lim, 100))
     grid = jnp.column_stack((XX.ravel(), YY.ravel()))
 
-    lls = hmm.emission_distribution.log_prob(grid[:, None, :])
+    lls = vmap(lambda state: hmm.emission_distribution(state).log_prob(grid))(jnp.arange(hmm.num_states))
     plt.figure()
     for k in range(hmm.num_states):
-        plt.contour(XX, YY, jnp.exp(lls[:, k]).reshape(XX.shape), cmap=white_to_color_cmap(COLORS[k]))
+        plt.contour(XX, YY, jnp.exp(lls[k]).reshape(XX.shape), cmap=white_to_color_cmap(COLORS[k]))
         plt.plot(emissions[states == k, 0], emissions[states == k, 1], "o", mfc=COLORS[k], mec="none", ms=3, alpha=0.5)
 
     plt.plot(emissions[:, 0], emissions[:, 1], "-k", lw=1, alpha=0.25)
@@ -32,7 +31,7 @@ def plot_gaussian_hmm(hmm, emissions, states, ttl="Emission Distributions"):
 
 def plot_gaussian_hmm_data(hmm, emissions, states, xlim=None):
     num_timesteps = len(emissions)
-    emission_dim = hmm.num_obs
+    emission_dim = hmm.emission_shape[0]
 
     # Plot the data superimposed on the generating state sequence
     plt.figure()
