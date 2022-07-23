@@ -2,14 +2,24 @@
 
 from functools import partial
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import optax
 from jax import jit
-from jax import lax
-from jax import value_and_grad
 from jax import vmap
 from tqdm.auto import trange
+
+
+def scan(f, init, xs, length=None):
+    if xs is None:
+        xs = [None] * length
+    carry = init
+    ys = []
+    for x in xs:
+        carry, y = f(carry, x)
+        ys.append(y)
+    return carry, jnp.stack(ys)
 
 
 def hmm_fit_em(hmm, batch_emissions, num_iters=50, **kwargs):
@@ -94,7 +104,9 @@ def hmm_fit_sgd(
     if loss_fn is None:
         loss_fn = partial(_loss_fn, hmm)
 
-    loss_grad_fn = value_and_grad(loss_fn)
+    filter_spec = hmm.filter_spec()
+    value_and_grad_fn = partial(eqx.filter_value_and_grad, arg=filter_spec)
+    loss_grad_fn = value_and_grad_fn(loss_fn)
 
     def train_step(carry, key):
 
@@ -105,14 +117,14 @@ def hmm_fit_sgd(
             batch, ts = next(sample_generator)
             val, grads = loss_grad_fn(params, batch, ts)
             updates, opt_state = optimizer.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
+            params = eqx.apply_updates(params, updates)
             return (params, opt_state), val
 
-        state, losses = lax.scan(opt_step, carry, jnp.arange(num_batches))
+        state, losses = scan(opt_step, carry, jnp.arange(num_batches))
         return state, losses.mean()
 
     keys = jr.split(key, num_iters)
-    (params, _), losses = lax.scan(train_step, (params, opt_state), keys)
+    (params, _), losses = scan(train_step, (params, opt_state), keys)
 
     losses = losses.flatten()
     hmm.unconstrained_params = params

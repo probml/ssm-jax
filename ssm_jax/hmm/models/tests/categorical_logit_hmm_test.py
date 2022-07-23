@@ -1,7 +1,6 @@
-import pytest
-
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 from jax import nn
 from ssm_jax.hmm.models import CategoricalHMM
 from ssm_jax.hmm.models import CategoricalLogitHMM
@@ -31,8 +30,11 @@ def test_categorical_hmm_parameters(key=jr.PRNGKey(0), num_states=2, num_emissio
     assert jnp.allclose(categorical_hmm.transition_matrix, transition_matrix)
     assert jnp.allclose(categorical_hmm.emission_probs, emission_probs)
 
-    assert jnp.allclose(categorical_hmm.emission_probs, nn.softmax(categorical_logit_hmm._emission_logits, axis=-1))
-    assert jnp.allclose(categorical_hmm.transition_matrix, nn.softmax(categorical_logit_hmm._transition_logits, axis=-1))
+    assert jnp.allclose(categorical_hmm.emission_probs,
+                        nn.softmax(categorical_logit_hmm._emission_logits.value, axis=-1),
+                        atol=1e-1)
+    assert jnp.allclose(categorical_hmm.transition_matrix,
+                        nn.softmax(categorical_logit_hmm._transition_logits.value, axis=-1))
 
 
 def test_categorical_hmm_sample(key=jr.PRNGKey(0), num_states=4, num_emissions=3, num_classes=10, num_timesteps=100):
@@ -56,7 +58,8 @@ def test_categorical_hmm_log_prob(key=jr.PRNGKey(0), num_states=4, num_emissions
     assert jnp.allclose(categorical_hmm.log_prob(states, emissions), categorical_logit_hmm.log_prob(states, emissions))
 
 
-def test_categorical_hmm_conditional_logliks(key=jr.PRNGKey(0), num_states=4, num_emissions=1, num_classes=10, num_timesteps=100):
+def test_categorical_hmm_conditional_logliks(
+        key=jr.PRNGKey(0), num_states=4, num_emissions=1, num_classes=10, num_timesteps=100):
 
     categorical_logit_hmm = CategoricalLogitHMM.random_initialization(key, num_states, num_emissions, num_classes)
     categorical_hmm = init_categorical_hmm_from(categorical_logit_hmm)
@@ -69,26 +72,26 @@ def test_categorical_hmm_conditional_logliks(key=jr.PRNGKey(0), num_states=4, nu
     )
 
 
-def test_categorical_hmm_marginal_log_prob(key=jr.PRNGKey(0), num_states=4, num_emissions=2, num_classes=10, num_timesteps=100):
+def test_categorical_hmm_marginal_log_prob(
+        key=jr.PRNGKey(0), num_states=4, num_emissions=2, num_classes=10, num_timesteps=100):
 
     categorical_logit_hmm = CategoricalLogitHMM.random_initialization(key, num_states, num_emissions, num_classes)
     categorical_hmm = init_categorical_hmm_from(categorical_logit_hmm)
 
     _, emissions = categorical_logit_hmm.sample(key, num_timesteps)
-    assert jnp.allclose(
-        categorical_hmm.marginal_log_prob(emissions), categorical_logit_hmm.marginal_log_prob(emissions)
-    )
+    assert jnp.allclose(categorical_hmm.marginal_log_prob(emissions),
+                        categorical_logit_hmm.marginal_log_prob(emissions))
 
 
-def test_categorical_hmm_most_likely_states(key=jr.PRNGKey(0), num_states=4, num_emissions=2, num_classes=10, num_timesteps=100):
+def test_categorical_hmm_most_likely_states(
+        key=jr.PRNGKey(0), num_states=4, num_emissions=2, num_classes=10, num_timesteps=100):
 
     categorical_logit_hmm = CategoricalLogitHMM.random_initialization(key, num_states, num_emissions, num_classes)
     categorical_hmm = init_categorical_hmm_from(categorical_logit_hmm)
 
     _, emissions = categorical_logit_hmm.sample(key, num_timesteps)
-    assert jnp.allclose(
-        categorical_hmm.most_likely_states(emissions), categorical_logit_hmm.most_likely_states(emissions)
-    )
+    assert jnp.allclose(categorical_hmm.most_likely_states(emissions),
+                        categorical_logit_hmm.most_likely_states(emissions))
 
 
 def test_categorical_hmm_filter(key=jr.PRNGKey(0), num_states=4, num_emissions=2, num_classes=10, num_timesteps=100):

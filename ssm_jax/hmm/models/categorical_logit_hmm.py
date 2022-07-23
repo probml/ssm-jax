@@ -1,24 +1,24 @@
+from dataclasses import replace
 from functools import partial
 
+import chex
 import jax.numpy as jnp
 import jax.random as jr
-from jax.scipy.special import logsumexp
-from jax import vmap
-from jax import tree_map
-from jax.nn import one_hot
-from jax.tree_util import register_pytree_node_class
-
-import chex
 import tensorflow_probability.substrates.jax.distributions as tfd
-
-from ssm_jax.hmm.inference import hmm_smoother
+from jax import tree_map
+from jax import vmap
+from jax.nn import one_hot
+from jax.scipy.special import logsumexp
+from jax.tree_util import register_pytree_node_class
 from ssm_jax.hmm.inference import compute_transition_probs
+from ssm_jax.hmm.inference import hmm_smoother
+from ssm_jax.hmm.models.base import Parameter
 from ssm_jax.hmm.models.categorical_hmm import CategoricalHMM
-
 
 
 @register_pytree_node_class
 class CategoricalLogitHMM(CategoricalHMM):
+
     def __init__(self, initial_logits, transition_logits, emission_logits):
         num_states, num_emissions, num_classes = emission_logits.shape
 
@@ -27,9 +27,9 @@ class CategoricalLogitHMM(CategoricalHMM):
         assert transition_logits.shape == (num_states, num_states)
 
         # Construct the  distribution objects
-        self._initial_logits = initial_logits
-        self._transition_logits = transition_logits
-        self._emission_logits = emission_logits
+        self._initial_logits = Parameter(initial_logits)
+        self._transition_logits = Parameter(transition_logits)
+        self._emission_logits = Parameter(emission_logits)
 
     @classmethod
     def random_initialization(cls, key, num_states, num_emissions, num_classes):
@@ -40,44 +40,44 @@ class CategoricalLogitHMM(CategoricalHMM):
         return cls(initial_logits, transition_logits, emission_logits)
 
     def initial_distribution(self):
-        return tfd.Categorical(logits=self._initial_logits)
+        return tfd.Categorical(logits=self._initial_logits.value)
 
     @property
     def initial_probabilities(self):
-        logits = self._initial_logits
+        logits = self._initial_logits.value
         return jnp.exp(logits - logsumexp(logits, keepdims=True))
 
     def transition_distribution(self, state):
-        return tfd.Categorical(logits=self._transition_logits[state])
+        return tfd.Categorical(logits=self._transition_logits.value[state])
 
     @property
     def transition_matrix(self):
-        logits = self._transition_logits
+        logits = self._transition_logits.value
         return jnp.exp(logits - logsumexp(logits, axis=1, keepdims=True))
 
     def emission_distribution(self, state):
-        return tfd.Independent(tfd.Categorical(logits=self._emission_logits[state]),
-                               reinterpreted_batch_ndims=1)
+        return tfd.Independent(tfd.Categorical(logits=self._emission_logits.value[state]), reinterpreted_batch_ndims=1)
 
     @property
     def emission_probs(self):
-        logits = self._emission_logits
+        logits = self._emission_logits.value
         return jnp.exp(logits - logsumexp(logits, axis=-1, keepdims=True))
 
     @property
     def unconstrained_params(self):
         """Helper property to get a PyTree of unconstrained parameters."""
-        return self._initial_logits, self._transition_logits, self._emission_logits
+        return self._initial_logits.value, self._transition_logits.value, self._emission_logits.value
 
     @unconstrained_params.setter
     def unconstrained_params(cls, value):
-        self._initial_logits, self._transition_logits, self._emission_logits = value
+        self._initial_logits.value, self._transition_logits.value, self._emission_logits.value = value
 
     def e_step(self, batch_emissions):
         """The E-step computes expected sufficient statistics under the
         posterior. In the Gaussian case, this these are the first two
         moments of the data
         """
+
         @chex.dataclass
         class CategoricalHMMSuffStats:
             # Wrapper for sufficient statistics of a BernoulliHMM
@@ -88,8 +88,7 @@ class CategoricalLogitHMM(CategoricalHMM):
 
         def _single_e_step(emissions):
             # Run the smoother
-            posterior = hmm_smoother(self.initial_probabilities,
-                                     self.transition_matrix,
+            posterior = hmm_smoother(self.initial_probabilities, self.transition_matrix,
                                      self._conditional_logliks(emissions))
 
             # Compute the initial state and transition probabilities
@@ -97,9 +96,8 @@ class CategoricalLogitHMM(CategoricalHMM):
             trans_probs = compute_transition_probs(self.transition_matrix, posterior)
 
             # Compute the expected sufficient statistics
-            sum_x = jnp.einsum("tk, ti->ki", posterior.smoothed_probs,
-                               one_hot(emissions, self.num_states))
-            
+            sum_x = jnp.einsum("tk, ti->ki", posterior.smoothed_probs, one_hot(emissions, self.num_states))
+
             # Pack into a dataclass
             stats = CategoricalHMMSuffStats(
                 marginal_loglik=posterior.marginal_loglik,
@@ -111,6 +109,9 @@ class CategoricalLogitHMM(CategoricalHMM):
 
         # Map the E step calculations over batches
         return vmap(_single_e_step)(batch_emissions)
+
+    def freeze_emission_logits(self):
+        self._emission_logits = replace(self._emission_logits, is_trainable=False)
 
     @classmethod
     def m_step(cls, batch_emissions, batch_posteriors, **kwargs):

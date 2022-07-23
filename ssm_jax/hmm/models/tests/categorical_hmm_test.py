@@ -7,6 +7,7 @@ import pytest
 from jax import vmap
 from jax.tree_util import register_pytree_node_class
 from ssm_jax.hmm.learning import hmm_fit_em
+from ssm_jax.hmm.learning import hmm_fit_sgd
 from ssm_jax.hmm.models.base import BaseHMM
 from ssm_jax.hmm.models.categorical_hmm import CategoricalHMM
 
@@ -48,10 +49,8 @@ def new_hmm():
     num_emissions = 1
     num_classes = 3
     initial_probabilities = jnp.array([0.6, 0.4])
-    transition_matrix = jnp.array([[0.7, 0.3], 
-                                   [0.4, 0.6]])
-    emission_probs = jnp.array([[0.1, 0.4, 0.5], 
-                                [0.6, 0.3, 0.1]])
+    transition_matrix = jnp.array([[0.7, 0.3], [0.4, 0.6]])
+    emission_probs = jnp.array([[0.1, 0.4, 0.5], [0.6, 0.3, 0.1]])
     emission_probs = emission_probs.reshape(num_states, num_emissions, num_classes)
     hmm = CategoricalHMM(initial_probabilities, transition_matrix, emission_probs)
     return hmm
@@ -83,18 +82,17 @@ class TestCategoricalAgainstWikipedia:
         print(filtered_probs)
         assert jnp.allclose(
             filtered_probs,
-            jnp.array(
-                [
-                    [0.23170303, 0.76829697],
-                    [0.62406281, 0.37593719],
-                    [0.86397706, 0.13602294],
-                ]
-            ),
+            jnp.array([
+                [0.23170303, 0.76829697],
+                [0.62406281, 0.37593719],
+                [0.86397706, 0.13602294],
+            ]),
             atol=1e-1,
         )
 
 
 class TestCategoricalHMM:
+
     def setup(self):
         self.num_states = 2
         self.num_classes = 3
@@ -124,14 +122,15 @@ class TestCategoricalHMM:
 
         true_initial_probs = jnp.ones((num_states,)) / (num_states * 1.0)
         true_transition_matrix = 0.90 * jnp.eye(num_states) + 0.10 * jnp.ones((num_states, num_states)) / num_states
-        true_emission_probs = jr.uniform(emis_key, shape=(num_states, num_emissions, num_classes)) 
+        true_emission_probs = jr.uniform(emis_key, shape=(num_states, num_emissions, num_classes))
         true_emission_probs /= true_emission_probs.sum(axis=-1, keepdims=True)
         true_hmm = CategoricalHMM(true_initial_probs, true_transition_matrix, true_emission_probs)
         state_sequence, emissions = true_hmm.sample(sample_key, num_timesteps)
-        
+
         hmm = CategoricalHMM.random_initialization(init_key, num_states, num_emissions, num_classes)
+        print(hmm._initial_probabilities)
         res1, lps1 = hmm_fit_em(hmm, emissions[None, ...])
-        
+
         # Make a CategoricalHMM that defaults to the BaseHMM EM algorithm
         @register_pytree_node_class
         class DummyCategoricalHMM(CategoricalHMM):
@@ -140,7 +139,32 @@ class TestCategoricalHMM:
 
         hmm = DummyCategoricalHMM.random_initialization(init_key, num_states, num_emissions, num_classes)
         res2, lps2 = hmm_fit_em(hmm, emissions[None, ...])
-        
+
         assert jnp.allclose(res1.emission_probs, res2.emission_probs)
         assert jnp.allclose(res1.initial_probabilities, res2.initial_probabilities)
         assert jnp.allclose(jnp.array(lps1), jnp.array(lps2))
+
+    def test_fit_emission_params(self,
+                                 key=jr.PRNGKey(0),
+                                 num_states=4,
+                                 num_emissions=2,
+                                 num_classes=3,
+                                 num_timesteps=1000):
+        emis_key, sample_key, init_key = jr.split(key, 3)
+
+        true_initial_probs = jnp.ones((num_states,)) / (num_states * 1.0)
+        true_transition_matrix = 0.90 * jnp.eye(num_states) + 0.10 * jnp.ones((num_states, num_states)) / num_states
+        true_emission_probs = jr.uniform(emis_key, shape=(num_states, num_emissions, num_classes))
+        true_emission_probs /= true_emission_probs.sum(axis=-1, keepdims=True)
+        true_hmm = CategoricalHMM(true_initial_probs, true_transition_matrix, true_emission_probs)
+        state_sequence, emissions = true_hmm.sample(sample_key, num_timesteps)
+
+        hmm = CategoricalHMM.random_initialization(init_key, num_states, num_emissions, num_classes)
+        initial_probs = hmm.initial_probabilities
+        initial_transition_matrix = hmm.transition_matrix
+        hmm.freeze_initial_probabilities()
+        hmm.freeze_transition_matrix()
+        res, lps = hmm_fit_sgd(hmm, emissions[None, ...])
+
+        assert jnp.allclose(initial_probs, res.initial_probabilities)
+        assert jnp.allclose(initial_transition_matrix, res.transition_matrix)

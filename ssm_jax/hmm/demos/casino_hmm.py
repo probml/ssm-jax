@@ -5,10 +5,9 @@ Based on https://github.com/probml/JSL/blob/main/jsl/demos/hmm_casino.py
 """
 import jax.numpy as jnp
 import jax.random as jr
-
 import matplotlib.pyplot as plt
 import numpy as np
-
+from ssm_jax.hmm.learning import hmm_fit_sgd
 from ssm_jax.hmm.models import CategoricalHMM
 
 
@@ -73,12 +72,10 @@ def plot_inference(inference_values, states, ax, state=1, map_estimate=False):
 def make_model_and_data():
     # Construct the model
     transition_matrix = jnp.array([[0.95, 0.05], [0.10, 0.90]])
-    emission_probs = jnp.array(
-        [
-            [1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],  # fair die
-            [1 / 10, 1 / 10, 1 / 10, 1 / 10, 1 / 10, 5 / 10],  # loaded die
-        ]
-    ).reshape((2, 1, 6))
+    emission_probs = jnp.array([
+        [1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],  # fair die
+        [1 / 10, 1 / 10, 1 / 10, 1 / 10, 1 / 10, 5 / 10],  # loaded die
+    ]).reshape((2, 1, 6))
     init_state_probs = jnp.array([1 / 2, 1 / 2])
     hmm = CategoricalHMM(init_state_probs, transition_matrix, emission_probs)
 
@@ -122,9 +119,8 @@ def main(test_mode=False):
     hmm, true_states, emissions = make_model_and_data()
     posterior = hmm.smoother(emissions)
     most_likely_states = hmm.most_likely_states(emissions)
-    if not test_mode:
-        dict_figures = plot_results(true_states, emissions, posterior, most_likely_states)
-        plt.show()
+
+    _ = hmm_fit_sgd(hmm, emissions)
 
 
 # Run the demo
